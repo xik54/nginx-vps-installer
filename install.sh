@@ -18,6 +18,7 @@ readonly CONFIG_DIR="${CONFIG_DIR:-/etc/${SITE_NAME}}"
 readonly SYNC_SCRIPT_PATH="${SYNC_SCRIPT_PATH:-/usr/local/sbin/${SITE_NAME}-sync}"
 readonly SYSTEMD_UNIT_DIR="${SYSTEMD_UNIT_DIR:-/etc/systemd/system}"
 readonly SYNC_INTERVAL="${SYNC_INTERVAL:-5min}"
+readonly LETSENCRYPT_LIVE_DIR="${LETSENCRYPT_LIVE_DIR:-/etc/letsencrypt/live}"
 readonly SKIP_APT="${SKIP_APT:-0}"
 readonly SKIP_SYSTEMCTL="${SKIP_SYSTEMCTL:-0}"
 
@@ -77,6 +78,7 @@ NGINX_AVAILABLE_DIR=$(printf '%q' "${NGINX_AVAILABLE_DIR}")
 NGINX_ENABLED_DIR=$(printf '%q' "${NGINX_ENABLED_DIR}")
 NGINX_MAIN_CONFIG=$(printf '%q' "${NGINX_MAIN_CONFIG}")
 NGINX_BIN=$(printf '%q' "${NGINX_BIN}")
+LETSENCRYPT_LIVE_DIR=$(printf '%q' "${LETSENCRYPT_LIVE_DIR}")
 SKIP_SYSTEMCTL=$(printf '%q' "${SKIP_SYSTEMCTL}")
 SETTINGS
   chmod 0600 "${CONFIG_DIR}/settings"
