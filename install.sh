@@ -160,7 +160,9 @@ main() {
   prepare_site_repository_access
   checkout_repository "${SITE_REPOSITORY_URL}" "${SITE_REPO_DIR}" "${SITE_GIT_SSH_COMMAND}"
 
-  [[ -x "${INSTALLER_REPO_DIR}/scripts/sync-nginx-site" ]] || die 'Installer repository is missing scripts/sync-nginx-site.'
+  # Files created through GitHub's web API may not retain an executable mode.
+  # `install -m 0755` below establishes the required mode on the VPS.
+  [[ -f "${INSTALLER_REPO_DIR}/scripts/sync-nginx-site" ]] || die 'Installer repository is missing scripts/sync-nginx-site.'
   [[ -f "${SITE_REPO_DIR}/nginx/site.conf.template" ]] || die 'Site repository is missing nginx/site.conf.template.'
   [[ -d "${SITE_REPO_DIR}/site" ]] || die 'Site repository is missing site/.'
 
