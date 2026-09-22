@@ -1,6 +1,6 @@
 # Nginx VPS 安装器
 
-这是公开仓库 `xik54/nginx-vps-installer` 的内容：一键安装脚本、同步服务和 Ubuntu 集成验证。网站文件与 Nginx 虚拟主机模板放在独立的私有仓库 `xik54/nginx-site-content`。
+这是公开仓库 `xik54/nginx-vps-installer` 的内容：一键安装脚本、同步服务和 Ubuntu 集成验证。网站文件与 Nginx 虚拟主机模板放在独立的公开仓库 `xik54/nginx-site-content`。
 
 ```text
 nginx-vps-installer  ── 初次安装、systemd timer、安全同步脚本
@@ -21,9 +21,9 @@ curl -fsSL https://raw.githubusercontent.com/xik54/nginx-vps-installer/main/inst
   | sudo env SITE_DOMAIN=www.example.com bash
 ```
 
-首次执行会安装 `git`、`nginx`、`rsync` 和 SSH 客户端，并为私有网站仓库生成一个**只读 Deploy Key**。脚本会打印公钥后停止；将该公钥添加到 GitHub 私有仓库的「Settings → Deploy keys」（不要勾选写入权限），再执行相同命令一次即可完成安装。
+首次执行会安装 `git`、`nginx` 和 `rsync`，再从两个公开 GitHub 仓库通过 HTTPS 拉取所需文件，无需 Deploy Key、GitHub Token 或第二次运行。
 
-第二次执行会：
+脚本会：
 
 1. 将安装器克隆到 `/opt/nginx-vps-installer`，网站仓库克隆到 `/opt/nginx-site-content`；
 2. 创建 Nginx 站点和 `/var/www/github-nginx-site/current`；
@@ -44,11 +44,11 @@ journalctl -u github-nginx-site-sync.service -n 100 --no-pager
 
 ## 安全边界
 
-- `nginx-vps-installer` 必须公开；`nginx-site-content` 必须私有，VPS 仅使用其只读 Deploy Key 拉取它。
-- 不得提交密码、API Key、证书私钥、`.env` 或用户上传文件。VPS Deploy Key 在 VPS 的 `/root/.ssh/`，不写入 GitHub 仓库或安装器脚本。
+- `nginx-vps-installer` 与 `nginx-site-content` 都是公开仓库；任何提交内容都可被公众读取与 fork。
+- 不得提交密码、API Key、证书私钥、`.env`、用户上传文件或日志。
 - 配置未通过 `nginx -t` 时，部署会失败并保留原有的线上 Nginx 配置。
 - 安装脚本不会删除其他 Nginx 站点或禁用默认站点。
-- GitHub 采用轮询拉取，无需在 VPS 上保存 GitHub Token 或私钥。
+- GitHub 采用 HTTPS 轮询拉取，无需在 VPS 上保存 GitHub Token 或私钥。
 
 ## 本地 Ubuntu 验证
 
