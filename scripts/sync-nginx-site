@@ -1,0 +1,114 @@
+#!/usr/bin/env bash
+# Fetch, validate, publish, and reload a GitHub-backed static Nginx site.
+set -Eeuo pipefail
+
+readonly SETTINGS_FILE="${SETTINGS_FILE:-/etc/github-nginx-site/settings}"
+
+die() {
+  printf 'ERROR: %s\n' "$*" >&2
+  exit 1
+}
+
+[[ -r "${SETTINGS_FILE}" ]] || die "Missing settings file: ${SETTINGS_FILE}"
+# shellcheck disable=SC1090
+source "${SETTINGS_FILE}"
+
+readonly ACTIVE_CONFIG="${NGINX_AVAILABLE_DIR}/${SITE_NAME}.conf"
+readonly ENABLED_CONFIG="${NGINX_ENABLED_DIR}/${SITE_NAME}.conf"
+readonly TEMPLATE="${SITE_REPO_DIR}/nginx/site.conf.template"
+readonly SITE_SOURCE="${SITE_REPO_DIR}/site"
+readonly LOCK_FILE="/run/${SITE_NAME}-sync.lock"
+
+run_nginx_test() {
+  if [[ -n "${NGINX_MAIN_CONFIG}" ]]; then
+    "${NGINX_BIN}" -t -c "${NGINX_MAIN_CONFIG}"
+  else
+    "${NGINX_BIN}" -t
+  fi
+}
+
+reload_nginx() {
+  if [[ "${SKIP_SYSTEMCTL}" == '1' ]]; then
+    printf '%s\n' 'Skipping Nginx reload (SKIP_SYSTEMCTL=1).'
+    return
+  fi
+  systemctl reload nginx
+}
+
+site_git() {
+  if [[ -n "${SITE_GIT_SSH_COMMAND:-}" ]]; then
+    GIT_SSH_COMMAND="${SITE_GIT_SSH_COMMAND}" git "$@"
+  else
+    git "$@"
+  fi
+}
+
+main() {
+  exec 9>"${LOCK_FILE}"
+  flock -n 9 || die 'Another sync is already running.'
+
+  [[ -d "${SITE_REPO_DIR}/.git" ]] || die "Site Git repository is missing: ${SITE_REPO_DIR}"
+  [[ -f "${TEMPLATE}" ]] || die "Nginx template is missing: ${TEMPLATE}"
+  [[ -d "${SITE_SOURCE}" ]] || die "Website directory is missing: ${SITE_SOURCE}"
+
+  site_git -C "${SITE_REPO_DIR}" fetch --quiet origin "${BRANCH}"
+  local revision
+  revision="$(site_git -C "${SITE_REPO_DIR}" rev-parse "origin/${BRANCH}")"
+  site_git -C "${SITE_REPO_DIR}" checkout --quiet --detach "${revision}"
+
+  local candidate_config staging_dir release_dir backup_config
+  candidate_config="$(mktemp "${NGINX_AVAILABLE_DIR}/.${SITE_NAME}.XXXXXX")"
+  staging_dir="$(mktemp -d "$(dirname "${WEB_ROOT}")/.${SITE_NAME}.XXXXXX")"
+  backup_config=""
+
+  cleanup() {
+    rm -f "${candidate_config}"
+    if [[ -d "${staging_dir}" ]]; then
+      rm -rf "${staging_dir}"
+    fi
+    if [[ -n "${backup_config}" && -f "${backup_config}" ]]; then
+      rm -f "${backup_config}"
+    fi
+  }
+  trap cleanup EXIT
+
+  local escaped_domain escaped_web_root
+  escaped_domain="$(printf '%s' "${SITE_DOMAIN}" | sed 's/[&|]/\\\\&/g')"
+  escaped_web_root="$(printf '%s' "${WEB_ROOT}" | sed 's/[&|]/\\\\&/g')"
+  sed \
+    -e "s|__SITE_DOMAIN__|${escaped_domain}|g" \
+    -e "s|__WEB_ROOT__|${escaped_web_root}|g" \
+    "${TEMPLATE}" > "${candidate_config}"
+  chmod 0644 "${candidate_config}"
+  install -d -m 0755 "${NGINX_AVAILABLE_DIR}" "${NGINX_ENABLED_DIR}" "${WEB_ROOT}"
+
+  if [[ -e "${ACTIVE_CONFIG}" ]]; then
+    backup_config="$(mktemp "${NGINX_AVAILABLE_DIR}/.${SITE_NAME}.backup.XXXXXX")"
+    cp -a "${ACTIVE_CONFIG}" "${backup_config}"
+  fi
+
+  install -m 0644 "${candidate_config}" "${ACTIVE_CONFIG}"
+  ln -sfn "../sites-available/${SITE_NAME}.conf" "${ENABLED_CONFIG}"
+  if ! run_nginx_test; then
+    if [[ -n "${backup_config}" ]]; then
+      install -m 0644 "${backup_config}" "${ACTIVE_CONFIG}"
+    else
+      rm -f "${ACTIVE_CONFIG}" "${ENABLED_CONFIG}"
+    fi
+    die 'Candidate Nginx configuration is invalid; kept the previous live configuration.'
+  fi
+
+  rsync -a --delete "${SITE_SOURCE}/" "${staging_dir}/"
+  release_dir="${WEB_ROOT}/release-${revision}"
+  rm -rf "${release_dir}"
+  mv "${staging_dir}" "${release_dir}"
+  ln -sfn "$(basename "${release_dir}")" "${WEB_ROOT}/.current-next"
+  mv -Tf "${WEB_ROOT}/.current-next" "${WEB_ROOT}/current"
+
+  reload_nginx
+  printf 'Published %s at revision %s\n' "${SITE_NAME}" "${revision}"
+  cleanup
+  trap - EXIT
+}
+
+main "$@"
