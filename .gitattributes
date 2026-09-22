@@ -1,0 +1,4 @@
+# Shell scripts must retain Unix line endings when edited from Windows.
+install.sh text eol=lf
+scripts/* text eol=lf
+tests/*.sh text eol=lf
