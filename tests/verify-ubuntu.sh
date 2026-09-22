@@ -18,6 +18,7 @@ trap cleanup EXIT
 
 [[ "${EUID}" -eq 0 ]] || { printf 'Run this verification as root.\n' >&2; exit 1; }
 command -v git >/dev/null || { printf 'git must be installed before running verification.\n' >&2; exit 1; }
+command -v openssl >/dev/null || { printf 'openssl must be installed before running verification.\n' >&2; exit 1; }
 
 mkdir -p "${TEST_ROOT}/etc/nginx/sites-available" "${TEST_ROOT}/etc/nginx/sites-enabled" "${TEST_ROOT}/etc/nginx/conf.d"
 cat > "${TEST_ROOT}/etc/nginx/nginx.conf" <<EOF
@@ -73,6 +74,7 @@ NGINX_MAIN_CONFIG="${TEST_ROOT}/etc/nginx/nginx.conf" \
 CONFIG_DIR="${INSTALL_ROOT}/etc/${TEST_SITE_NAME}" \
 SYNC_SCRIPT_PATH="${INSTALL_ROOT}/usr/local/sbin/${TEST_SITE_NAME}-sync" \
 SYSTEMD_UNIT_DIR="${INSTALL_ROOT}/etc/systemd/system" \
+LETSENCRYPT_LIVE_DIR="${TEST_ROOT}/etc/letsencrypt/live" \
 SKIP_SYSTEMCTL=1 \
 bash "${PROJECT_ROOT}/install.sh"
 
@@ -108,5 +110,16 @@ git -C "${TEST_SITE_CHECKOUT}" push >/dev/null
 SETTINGS_FILE="${INSTALL_ROOT}/etc/${TEST_SITE_NAME}/settings" "${INSTALL_ROOT}/usr/local/sbin/${TEST_SITE_NAME}-sync"
 grep -Fq 'dist fallback verified' "${INSTALL_ROOT}/var/www/${TEST_SITE_NAME}/current/index.html"
 grep -Fq 'try_files $uri $uri/ /index.html;' "${TEST_ROOT}/etc/nginx/sites-available/${TEST_SITE_NAME}.conf"
+
+test_certificate_dir="${TEST_ROOT}/etc/letsencrypt/live/sync-test.invalid"
+mkdir -p "${test_certificate_dir}"
+openssl req -x509 -newkey rsa:2048 -nodes -days 1 \
+  -subj '/CN=sync-test.invalid' \
+  -keyout "${test_certificate_dir}/privkey.pem" \
+  -out "${test_certificate_dir}/fullchain.pem" >/dev/null 2>&1
+SETTINGS_FILE="${INSTALL_ROOT}/etc/${TEST_SITE_NAME}/settings" "${INSTALL_ROOT}/usr/local/sbin/${TEST_SITE_NAME}-sync"
+grep -Fq 'listen 443 ssl;' "${TEST_ROOT}/etc/nginx/sites-available/${TEST_SITE_NAME}.conf"
+grep -Fq "ssl_certificate ${test_certificate_dir}/fullchain.pem;" "${TEST_ROOT}/etc/nginx/sites-available/${TEST_SITE_NAME}.conf"
+nginx -t -c "${TEST_ROOT}/etc/nginx/nginx.conf" >/dev/null
 
 printf 'Ubuntu integration verification passed.\n'
