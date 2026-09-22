@@ -6,7 +6,7 @@
 nginx-vps-installer  ── 初次安装、systemd timer、安全同步脚本
                                  │
                                  ▼
-nginx-site-content   ── site/ 网页文件、nginx/site.conf.template
+nginx-site-content   ── site/ 或 dist/ 网页文件、可选 nginx/site.conf.template
                                  │
                                  ▼
 VPS Nginx            ── 每 5 分钟拉取、nginx -t、成功后重载
@@ -29,6 +29,8 @@ curl -fsSL https://raw.githubusercontent.com/xik54/nginx-vps-installer/main/inst
 2. 创建 Nginx 站点和 `/var/www/github-nginx-site/current`；
 3. 立即校验并发布站点；
 4. 注册一个每 5 分钟运行的 systemd timer。
+
+网站仓库可放原始静态文件到 `site/`，或放前端构建产物到 `dist/`（例如 Vite 的输出）。若没有 `nginx/site.conf.template`，安装器会为静态站点自动生成基础 Nginx 配置；有模板时则优先使用模板。
 
 之后只需把修改推送到 `main` 分支。下一轮同步会自动拉取、校验并重载 Nginx。
 
