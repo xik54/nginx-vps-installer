@@ -32,6 +32,8 @@ curl -fsSL https://raw.githubusercontent.com/xik54/nginx-vps-installer/main/inst
 
 网站仓库可放原始静态文件到 `site/`，或放前端构建产物到 `dist/`（例如 Vite 的输出）。若没有 `nginx/site.conf.template`，安装器会为静态站点自动生成基础 Nginx 配置；有模板时则优先使用模板。
 
+若 `/etc/letsencrypt/live/你的域名/` 中已有 Let’s Encrypt 证书，同步脚本会自动监听 `443` 并把 HTTP 重定向至 HTTPS。
+
 之后只需把修改推送到 `main` 分支。下一轮同步会自动拉取、校验并重载 Nginx。
 
 ```bash
