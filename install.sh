@@ -4,7 +4,7 @@ set -Eeuo pipefail
 
 readonly SITE_NAME="${SITE_NAME:-github-nginx-site}"
 readonly SITE_DOMAIN="${SITE_DOMAIN:-_}"
-readonly SITE_REPOSITORY_URL="${SITE_REPOSITORY_URL:-git@github.com:xik54/nginx-site-content.git}"
+readonly SITE_REPOSITORY_URL="${SITE_REPOSITORY_URL:-https://github.com/xik54/nginx-site-content.git}"
 readonly INSTALLER_REPOSITORY_URL="${INSTALLER_REPOSITORY_URL:-https://github.com/xik54/nginx-vps-installer.git}"
 readonly BRANCH="${BRANCH:-main}"
 readonly SITE_REPO_DIR="${SITE_REPO_DIR:-/opt/nginx-site-content}"
@@ -18,10 +18,8 @@ readonly CONFIG_DIR="${CONFIG_DIR:-/etc/${SITE_NAME}}"
 readonly SYNC_SCRIPT_PATH="${SYNC_SCRIPT_PATH:-/usr/local/sbin/${SITE_NAME}-sync}"
 readonly SYSTEMD_UNIT_DIR="${SYSTEMD_UNIT_DIR:-/etc/systemd/system}"
 readonly SYNC_INTERVAL="${SYNC_INTERVAL:-5min}"
-readonly SITE_DEPLOY_KEY_PATH="${SITE_DEPLOY_KEY_PATH:-/root/.ssh/${SITE_NAME}-github}"
 readonly SKIP_APT="${SKIP_APT:-0}"
 readonly SKIP_SYSTEMCTL="${SKIP_SYSTEMCTL:-0}"
-SITE_GIT_SSH_COMMAND=''
 
 die() {
   printf 'ERROR: %s\n' "$*" >&2
@@ -48,52 +46,20 @@ install_packages() {
 
   export DEBIAN_FRONTEND=noninteractive
   apt-get update
-  apt-get install -y --no-install-recommends ca-certificates git nginx openssh-client rsync
-}
-
-prepare_site_repository_access() {
-  if [[ "${SITE_REPOSITORY_URL}" != git@github.com:* ]]; then
-    return 0
-  fi
-
-  install -d -m 0700 "$(dirname "${SITE_DEPLOY_KEY_PATH}")"
-  if [[ ! -f "${SITE_DEPLOY_KEY_PATH}" ]]; then
-    ssh-keygen -q -t ed25519 -N '' \
-      -C "${SITE_NAME}@$(hostname -s)" \
-      -f "${SITE_DEPLOY_KEY_PATH}"
-    chmod 0600 "${SITE_DEPLOY_KEY_PATH}"
-    printf '\nAdd this PUBLIC key as a read-only Deploy Key to %s, then rerun this installer:\n\n' "${SITE_REPOSITORY_URL}"
-    cat "${SITE_DEPLOY_KEY_PATH}.pub"
-    printf '\nGitHub: repository Settings → Deploy keys → Add deploy key. Leave “Allow write access” unchecked.\n'
-    exit 2
-  fi
-
-  chmod 0600 "${SITE_DEPLOY_KEY_PATH}"
-  SITE_GIT_SSH_COMMAND="ssh -i ${SITE_DEPLOY_KEY_PATH} -o IdentitiesOnly=yes -o StrictHostKeyChecking=accept-new"
-}
-
-git_with_ssh() {
-  local ssh_command="$1"
-  shift
-  if [[ -n "${ssh_command}" ]]; then
-    GIT_SSH_COMMAND="${ssh_command}" git "$@"
-  else
-    git "$@"
-  fi
+  apt-get install -y --no-install-recommends ca-certificates git nginx rsync
 }
 
 checkout_repository() {
   local repository_url="$1"
   local repository_dir="$2"
-  local ssh_command="${3:-}"
 
   if [[ -d "${repository_dir}/.git" ]]; then
-    git_with_ssh "${ssh_command}" -C "${repository_dir}" fetch --quiet origin "${BRANCH}"
-    git_with_ssh "${ssh_command}" -C "${repository_dir}" checkout --quiet --detach "origin/${BRANCH}"
+    git -C "${repository_dir}" fetch --quiet origin "${BRANCH}"
+    git -C "${repository_dir}" checkout --quiet --detach "origin/${BRANCH}"
   else
     install -d -m 0755 "$(dirname "${repository_dir}")"
-    git_with_ssh "${ssh_command}" clone --branch "${BRANCH}" --single-branch "${repository_url}" "${repository_dir}"
-    git_with_ssh "${ssh_command}" -C "${repository_dir}" checkout --quiet --detach "origin/${BRANCH}"
+    git clone --branch "${BRANCH}" --single-branch "${repository_url}" "${repository_dir}"
+    git -C "${repository_dir}" checkout --quiet --detach "origin/${BRANCH}"
   fi
 }
 
@@ -106,7 +72,6 @@ SITE_REPOSITORY_URL=$(printf '%q' "${SITE_REPOSITORY_URL}")
 INSTALLER_REPOSITORY_URL=$(printf '%q' "${INSTALLER_REPOSITORY_URL}")
 BRANCH=$(printf '%q' "${BRANCH}")
 SITE_REPO_DIR=$(printf '%q' "${SITE_REPO_DIR}")
-SITE_GIT_SSH_COMMAND=$(printf '%q' "${SITE_GIT_SSH_COMMAND}")
 WEB_ROOT=$(printf '%q' "${WEB_ROOT}")
 NGINX_AVAILABLE_DIR=$(printf '%q' "${NGINX_AVAILABLE_DIR}")
 NGINX_ENABLED_DIR=$(printf '%q' "${NGINX_ENABLED_DIR}")
@@ -157,8 +122,7 @@ main() {
   validate_settings
   install_packages
   checkout_repository "${INSTALLER_REPOSITORY_URL}" "${INSTALLER_REPO_DIR}"
-  prepare_site_repository_access
-  checkout_repository "${SITE_REPOSITORY_URL}" "${SITE_REPO_DIR}" "${SITE_GIT_SSH_COMMAND}"
+  checkout_repository "${SITE_REPOSITORY_URL}" "${SITE_REPO_DIR}"
 
   # Files created through GitHub's web API may not retain an executable mode.
   # `install -m 0755` below establishes the required mode on the VPS.
