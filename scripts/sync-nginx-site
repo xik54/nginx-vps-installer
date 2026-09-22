@@ -35,14 +35,6 @@ reload_nginx() {
   systemctl reload nginx
 }
 
-site_git() {
-  if [[ -n "${SITE_GIT_SSH_COMMAND:-}" ]]; then
-    GIT_SSH_COMMAND="${SITE_GIT_SSH_COMMAND}" git "$@"
-  else
-    git "$@"
-  fi
-}
-
 main() {
   exec 9>"${LOCK_FILE}"
   flock -n 9 || die 'Another sync is already running.'
@@ -51,10 +43,10 @@ main() {
   [[ -f "${TEMPLATE}" ]] || die "Nginx template is missing: ${TEMPLATE}"
   [[ -d "${SITE_SOURCE}" ]] || die "Website directory is missing: ${SITE_SOURCE}"
 
-  site_git -C "${SITE_REPO_DIR}" fetch --quiet origin "${BRANCH}"
+  git -C "${SITE_REPO_DIR}" fetch --quiet origin "${BRANCH}"
   local revision
-  revision="$(site_git -C "${SITE_REPO_DIR}" rev-parse "origin/${BRANCH}")"
-  site_git -C "${SITE_REPO_DIR}" checkout --quiet --detach "${revision}"
+  revision="$(git -C "${SITE_REPO_DIR}" rev-parse "origin/${BRANCH}")"
+  git -C "${SITE_REPO_DIR}" checkout --quiet --detach "${revision}"
 
   local candidate_config staging_dir release_dir backup_config
   candidate_config="$(mktemp "${NGINX_AVAILABLE_DIR}/.${SITE_NAME}.XXXXXX")"
