@@ -16,7 +16,6 @@ source "${SETTINGS_FILE}"
 readonly ACTIVE_CONFIG="${NGINX_AVAILABLE_DIR}/${SITE_NAME}.conf"
 readonly ENABLED_CONFIG="${NGINX_ENABLED_DIR}/${SITE_NAME}.conf"
 readonly TEMPLATE="${SITE_REPO_DIR}/nginx/site.conf.template"
-readonly SITE_SOURCE="${SITE_REPO_DIR}/site"
 readonly LOCK_FILE="/run/${SITE_NAME}-sync.lock"
 
 run_nginx_test() {
@@ -35,18 +34,60 @@ reload_nginx() {
   systemctl reload nginx
 }
 
+site_source_dir() {
+  if [[ -d "${SITE_REPO_DIR}/site" ]]; then
+    printf '%s\n' "${SITE_REPO_DIR}/site"
+  elif [[ -d "${SITE_REPO_DIR}/dist" ]]; then
+    printf '%s\n' "${SITE_REPO_DIR}/dist"
+  else
+    die 'Site repository must contain site/ or dist/.'
+  fi
+}
+
+render_config() {
+  local destination="$1"
+  if [[ -f "${TEMPLATE}" ]]; then
+    local escaped_domain escaped_web_root
+    escaped_domain="$(printf '%s' "${SITE_DOMAIN}" | sed 's/[&|]/\\\\&/g')"
+    escaped_web_root="$(printf '%s' "${WEB_ROOT}" | sed 's/[&|]/\\\\&/g')"
+    sed \
+      -e "s|__SITE_DOMAIN__|${escaped_domain}|g" \
+      -e "s|__WEB_ROOT__|${escaped_web_root}|g" \
+      "${TEMPLATE}" > "${destination}"
+  else
+    cat > "${destination}" <<CONFIG
+server {
+    listen 80;
+    listen [::]:80;
+    server_name ${SITE_DOMAIN};
+
+    root ${WEB_ROOT}/current;
+    index index.html;
+
+    location / {
+        try_files \$uri \$uri/ /index.html;
+    }
+
+    location ~ /\\. {
+        deny all;
+    }
+}
+CONFIG
+  fi
+}
+
 main() {
   exec 9>"${LOCK_FILE}"
   flock -n 9 || die 'Another sync is already running.'
 
   [[ -d "${SITE_REPO_DIR}/.git" ]] || die "Site Git repository is missing: ${SITE_REPO_DIR}"
-  [[ -f "${TEMPLATE}" ]] || die "Nginx template is missing: ${TEMPLATE}"
-  [[ -d "${SITE_SOURCE}" ]] || die "Website directory is missing: ${SITE_SOURCE}"
-
   git -C "${SITE_REPO_DIR}" fetch --quiet origin "${BRANCH}"
   local revision
   revision="$(git -C "${SITE_REPO_DIR}" rev-parse "origin/${BRANCH}")"
   git -C "${SITE_REPO_DIR}" checkout --quiet --detach "${revision}"
+
+  local site_source
+  site_source="$(site_source_dir)"
 
   local candidate_config staging_dir release_dir backup_config
   candidate_config="$(mktemp "${NGINX_AVAILABLE_DIR}/.${SITE_NAME}.XXXXXX")"
@@ -64,13 +105,7 @@ main() {
   }
   trap cleanup EXIT
 
-  local escaped_domain escaped_web_root
-  escaped_domain="$(printf '%s' "${SITE_DOMAIN}" | sed 's/[&|]/\\\\&/g')"
-  escaped_web_root="$(printf '%s' "${WEB_ROOT}" | sed 's/[&|]/\\\\&/g')"
-  sed \
-    -e "s|__SITE_DOMAIN__|${escaped_domain}|g" \
-    -e "s|__WEB_ROOT__|${escaped_web_root}|g" \
-    "${TEMPLATE}" > "${candidate_config}"
+  render_config "${candidate_config}"
   chmod 0644 "${candidate_config}"
   install -d -m 0755 "${NGINX_AVAILABLE_DIR}" "${NGINX_ENABLED_DIR}" "${WEB_ROOT}"
 
@@ -90,7 +125,7 @@ main() {
     die 'Candidate Nginx configuration is invalid; kept the previous live configuration.'
   fi
 
-  rsync -a --delete "${SITE_SOURCE}/" "${staging_dir}/"
+  rsync -a --delete "${site_source}/" "${staging_dir}/"
   release_dir="${WEB_ROOT}/release-${revision}"
   rm -rf "${release_dir}"
   mv "${staging_dir}" "${release_dir}"
