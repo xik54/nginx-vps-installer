@@ -99,4 +99,14 @@ fi
 grep -Fq 'server_name sync-test.invalid;' "${TEST_ROOT}/etc/nginx/sites-available/${TEST_SITE_NAME}.conf"
 nginx -t -c "${TEST_ROOT}/etc/nginx/nginx.conf" >/dev/null
 
+rm -rf "${TEST_SITE_CHECKOUT}/site" "${TEST_SITE_CHECKOUT}/nginx"
+mkdir -p "${TEST_SITE_CHECKOUT}/dist"
+printf '%s\n' '<h1>dist fallback verified</h1>' > "${TEST_SITE_CHECKOUT}/dist/index.html"
+git -C "${TEST_SITE_CHECKOUT}" add -A
+git -C "${TEST_SITE_CHECKOUT}" commit -m 'Verify dist fallback without Nginx template' >/dev/null
+git -C "${TEST_SITE_CHECKOUT}" push >/dev/null
+SETTINGS_FILE="${INSTALL_ROOT}/etc/${TEST_SITE_NAME}/settings" "${INSTALL_ROOT}/usr/local/sbin/${TEST_SITE_NAME}-sync"
+grep -Fq 'dist fallback verified' "${INSTALL_ROOT}/var/www/${TEST_SITE_NAME}/current/index.html"
+grep -Fq 'try_files $uri $uri/ /index.html;' "${TEST_ROOT}/etc/nginx/sites-available/${TEST_SITE_NAME}.conf"
+
 printf 'Ubuntu integration verification passed.\n'
