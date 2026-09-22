@@ -16,6 +16,7 @@ source "${SETTINGS_FILE}"
 readonly ACTIVE_CONFIG="${NGINX_AVAILABLE_DIR}/${SITE_NAME}.conf"
 readonly ENABLED_CONFIG="${NGINX_ENABLED_DIR}/${SITE_NAME}.conf"
 readonly TEMPLATE="${SITE_REPO_DIR}/nginx/site.conf.template"
+readonly CERTIFICATE_DIR="${LETSENCRYPT_LIVE_DIR:-/etc/letsencrypt/live}/${SITE_DOMAIN}"
 readonly LOCK_FILE="/run/${SITE_NAME}-sync.lock"
 
 run_nginx_test() {
@@ -55,7 +56,44 @@ render_config() {
       -e "s|__WEB_ROOT__|${escaped_web_root}|g" \
       "${TEMPLATE}" > "${destination}"
   else
-    cat > "${destination}" <<CONFIG
+    if [[ -f "${CERTIFICATE_DIR}/fullchain.pem" && -f "${CERTIFICATE_DIR}/privkey.pem" ]]; then
+      cat > "${destination}" <<CONFIG
+server {
+    listen 80;
+    listen [::]:80;
+    server_name ${SITE_DOMAIN};
+
+    location ^~ /.well-known/acme-challenge/ {
+        root ${WEB_ROOT}/current;
+    }
+
+    location / {
+        return 301 https://\$host\$request_uri;
+    }
+}
+
+server {
+    listen 443 ssl;
+    listen [::]:443 ssl;
+    server_name ${SITE_DOMAIN};
+
+    ssl_certificate ${CERTIFICATE_DIR}/fullchain.pem;
+    ssl_certificate_key ${CERTIFICATE_DIR}/privkey.pem;
+
+    root ${WEB_ROOT}/current;
+    index index.html;
+
+    location / {
+        try_files \$uri \$uri/ /index.html;
+    }
+
+    location ~ /\\. {
+        deny all;
+    }
+}
+CONFIG
+    else
+      cat > "${destination}" <<CONFIG
 server {
     listen 80;
     listen [::]:80;
@@ -73,6 +111,7 @@ server {
     }
 }
 CONFIG
+    fi
   fi
 }
 
